@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- flux_v1alpha1_helmdeploy.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

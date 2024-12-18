@@ -1,0 +1,9 @@
+apiVersion: flux.gh-release-operator.com/v1alpha1
+kind: HelmDeploy
+metadata:
+  labels:
+    app.kubernetes.io/name: release-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: helmdeploy-sample
+spec:
+  # TODO(user): Add fields here

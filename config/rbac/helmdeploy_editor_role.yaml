@@ -1,0 +1,27 @@
+# permissions for end users to edit helmdeploys.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: release-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: helmdeploy-editor-role
+rules:
+- apiGroups:
+  - flux.gh-release-operator.com
+  resources:
+  - helmdeploys
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - flux.gh-release-operator.com
+  resources:
+  - helmdeploys/status
+  verbs:
+  - get
