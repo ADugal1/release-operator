@@ -1,23 +1,13 @@
-/*
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,25 +23,40 @@ type HelmDeployReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=flux.gh-release-operator.com,resources=helmdeploys,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=flux.gh-release-operator.com,resources=helmdeploys/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=flux.gh-release-operator.com,resources=helmdeploys/finalizers,verbs=update
+type ReleasePayload struct {
+	Action  string `json:"action"`
+	Release struct {
+		TagName string `json:"tag_name"`
+	} `json:"release"`
+}
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the HelmDeploy object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.3/pkg/reconcile
 func (r *HelmDeployReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	// Fetch the HelmDeploy resource
+	var helmDeploy fluxv1alpha1.HelmDeploy
+	if err := r.Get(ctx, req.NamespacedName, &helmDeploy); err != nil {
+		log.Error(err, "unable to fetch HelmDeploy")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	// TODO(user): your logic here
+	// Example: Check if GitHub release exists (pseudo-code, replace with actual API call)
+	if isReleaseAvailable(helmDeploy.Spec.RepositoryURL, helmDeploy.Spec.TriggerBranch) {
+		for _, chart := range helmDeploy.Spec.HelmCharts {
+			err := deployHelmChart(chart)
+			if err != nil {
+				log.Error(err, "failed to deploy Helm chart", "chart", chart)
+				return ctrl.Result{}, err
+			}
+		}
+		// Update the status
+		helmDeploy.Status.DeployedCharts = helmDeploy.Spec.HelmCharts
+		helmDeploy.Status.LastSynced = time.Now().Format(time.RFC3339)
+		if err := r.Status().Update(ctx, &helmDeploy); err != nil {
+			log.Error(err, "failed to update HelmDeploy status")
+			return ctrl.Result{}, err
+		}
+	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: time.Hour}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -59,4 +64,43 @@ func (r *HelmDeployReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&fluxv1alpha1.HelmDeploy{}).
 		Complete(r)
+}
+
+func deployHelmChart(chartName string) error {
+	// Use Helm SDK to deploy the chart
+	// Placeholder for now
+	log.Info("Deploying Helm chart", "chart", chartName)
+	return nil
+}
+
+func webhookHandler(w http.ResponseWriter, r *http.Request) {
+	var payload ReleasePayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	if payload.Action == "published" {
+		log.Printf("New release detected: %s", payload.Release.TagName)
+		// Trigger deployment logic here
+	}
+}
+
+func fetchHelmChart(chartName, releaseTag string) (string, error) {
+	nexusURL := fmt.Sprintf("https://nexus.example.com/repository/helm/%s-%s.tgz", chartName, releaseTag)
+	resp, err := http.Get(nexusURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	filePath := fmt.Sprintf("/tmp/%s-%s.tgz", chartName, releaseTag)
+	out, err := os.Create(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return filePath, err
 }
